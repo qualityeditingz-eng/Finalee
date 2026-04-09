@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code Scanner</title>
+    <script src="https://unpkg.com/tesseract.js@v4.1.1/dist/tesseract.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background: linear-gradient(135deg, #0a0a23 0%, #1a0033 50%, #0a0a23 100%);
+            color: #00ffff;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Animated grid background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0,255,255,0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,255,255,0.1) 1px, transparent 1px);
+            background-size: 50px 50px;
+            animation: gridMove 20s linear infinite;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            position: relative;
+            z-index: 2;
+            padding: 20px;
+        }
+
+        .viewfinder {
+            width: min(90vw, 500px);
+            height: min(60vh, 400px);
+            border: 3px solid #00ffff;
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+            background: #000;
+            box-shadow: 
+                0 0 30px rgba(0,255,255,0.3),
+                inset 0 0 30px rgba(0,0,0,0.8);
+        }
+
+        /* Corner brackets */
+        .viewfinder::before,
+        .viewfinder::after,
+        .viewfinder > .bracket::before,
+        .viewfinder > .bracket::after {
+            content: '';
+            position: absolute;
+            background: linear-gradient(45deg, #00ffff, #ff00ff);
+            box-shadow: 0 0 10px rgba(0,255,255,0.5);
+        }
+
+        .viewfinder::before {
+            top: 10px;
+            left: 10px;
+            width: 30px;
+            height: 30px;
+            clip-path: polygon(0 0, 100% 0, 0 100%);
+        }
+
+        .viewfinder::after {
+            top: 10px;
+            right: 10px;
+            width: 30px;
+            height: 30px;
+            clip-path: polygon(100% 0, 100% 100%, 0 100%);
+        }
+
+        .bracket {
+            position: absolute;
+            bottom: 10px;
+            width: 100%;
+            height: 30px;
+        }
+
+        .bracket::before {
+            left: 10px;
+            width: 30px;
+            height: 100%;
+            clip-path: polygon(0 0, 100% 100%, 0 100%);
+        }
+
+        .bracket::after {
+            right: 10px;
+            width: 30px;
+            height: 100%;
+            clip-path: polygon(100% 0, 100% 100%, 0 0);
+        }
+
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+        }
+
+        /* Scan line animation */
+        .scanline {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, transparent, #00ffff, #ff00ff, #00ffff, transparent);
+            box-shadow: 0 0 20px #00ffff;
+            animation: scan 2s linear infinite;
+            display: none;
+        }
+
+        @keyframes scan {
+            0% { transform: translateY(0); opacity: 1; }
+            100% { transform: translateY(100%); opacity: 0; }
+        }
+
+        .btn {
+            margin-top: 30px;
+            padding: 15px 40px;
+            font-family: 'Orbitron', monospace;
+            font-weight: 700;
+            font-size: 18px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(45deg, #00ffff, #ff00ff);
+            color: #000;
+            box-shadow: 0 0 20px rgba(0,255,255,0.5);
+        }
+
+        .btn-primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(0,255,255,0.8);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: #00ffff;
+            border: 2px solid #00ffff;
+            box-shadow: 0 0 20px rgba(0,255,255,0.3);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(0,255,255,0.2);
+            box-shadow: 0 0 30px rgba(0,255,255,0.6);
+        }
+
+        /* Processing spinner */
+        .spinner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(0,255,255,0.3);
+            border-top: 4px solid #00ffff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        /* Success pulse */
+        .pulse-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 200px;
+            height: 200px;
+            border: 3px solid #00ffff;
+            border-radius: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            animation: pulse 1.5s ease-out;
+            display: none;
+        }
+
+        @keyframes pulse {
+            0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+        }
+
+        /* Modal */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            backdrop-filter: blur(10px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            animation: modalEnter 0.4s ease-out;
+        }
+
+        @keyframes modalEnter {
+            0% { opacity: 0; transform: scale(0.8); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        .modal-content {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            border: 2px solid #00ffff;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 90vw;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 
+                0 0 50px rgba(0,255,255,0.5),
+                inset 0 0 20px rgba(0,0,0,0.5);
+            text-align: center;
+            position: relative;
+        }
+
+        .code-badge {
+            display: inline-block;
+            background: linear-gradient(45deg, #00ffff, #ff00ff);
+            color: #000;
+            padding: 12px 24px;
+            border-radius: 50px;
+            font-family: 'Orbitron', monospace;
+            font-size: 24px;
+            font-weight: 900;
+            margin-bottom: 20px;
+            box-shadow: 0 0 20px rgba(0,255,255,0.5);
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+
+        .challenge-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 32px;
+            font-weight: 900;
+            background: linear-gradient(45deg, #00ffff, #ff00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px rgba(0,255,255,0.5);
+        }
+
+        .instructions {
+            text-align: left;
+            font-size: 18px;
+            line-height: 1.6;
+        }
+
+        .instructions li {
+            margin-bottom: 12px;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        .instructions li::before {
+            content: '▸';
+            position: absolute;
+            left: 0;
+            color: #ff00ff;
+            font-weight: bold;
+        }
+
+        .state-hidden {
+            display: none !important;
+        }
+
+        @media (max-width: 768px) {
+            .viewfinder {
+                width: 95vw;
+                height: 60vw;
+            }
+            
+            .modal-content {
+                padding: 30px 20px;
+                margin: 20px;
+            }
+            
+            .challenge-title {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Initial state -->
+        <div id="startState">
+            <div class="viewfinder">
+                <div style="display: flex; align-items: center; justify-content: center; height: 100%; font-family: 'Orbitron', monospace; font-size: 24px; color: #666;">
+                    📱 Point camera at code
+                </div>
+                <div class="bracket"></div>
+            </div>
+            <button id="startBtn" class="btn btn-primary">Start Scanning</button>
+        </div>
+
+        <!-- Scanning state -->
+        <div id="scanningState" class="state-hidden">
+            <div class="viewfinder">
+                <video id="video" autoplay playsinline></video>
+                <canvas id="canvas"></canvas>
+                <div class="scanline"></div>
+                <div class="bracket"></div>
+                <div class="pulse-ring"></div>
+                <div class="spinner"></div>
+            </div>
+            <button id="doneBtn" class="btn btn-secondary">Done</button>
+        </div>
+
+        <!-- No code found state -->
+        <div id="noCodeState" class="state-hidden">
+            <div class="viewfinder">
+                <canvas id="noCodeCanvas"></canvas>
+                <div class="bracket"></div>
+            </div>
+            <button id="retryBtn" class="btn btn-primary">Retry</button>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div id="modalCode" class="code-badge"></div>
+            <h2 id="modalTitle" class="challenge-title"></h2>
+            <ul id="modalInstructions" class="instructions"></ul>
+            <button id="dismissBtn" class="btn btn-secondary" style="margin-top: 30px;">Dismiss</button>
+        </div>
+    </div>
+
+    <script>
+        // Known codes database
+        const codes = {
+            'JK56': {
+                title: 'Jumping Jacks Challenge',
+                instructions: [
+                    'Do jumping jacks every single day',
+                    'Complete at least 300 jumping jacks per day',
+                    'No rest days'
+                ]
+            },
+            'XZ11': {
+                title: 'Push-Up Challenge',
+                instructions: [
+                    'Complete 100 push-ups every day',
+                    'Absolutely no skips allowed',
+                    'Stay disciplined and track your streak'
+                ]
+            }
+        };
+
+        // Fuzzy matching function
+        function fuzzyMatch(code, target, tolerance = 1) {
+            if (code === target) return true;
+            
+            // Normalize common OCR confusions
+            const normalizeMap = {
+                '0': 'O', 'O': '0',
+                '1': 'I', 'I': '1', 'l': '1', 'L': '1',
+                '5': 'S', 'S': '5',
+                '8': 'B', 'B': '8'
+            };
+            
+            const normalize = (str) => str.replace(/[0185OISBlL]/g, (char) => normalizeMap[char] || char);
+            
+            const normalizedCode = normalize(code.toUpperCase());
+            const normalizedTarget = normalize(target.toUpperCase());
+            
+            // Check exact match first
+            if (normalizedCode === normalizedTarget) return true;
+            
+            // Check with tolerance (Levenshtein distance)
+            const distance = levenshteinDistance(normalizedCode, normalizedTarget);
+            return distance <= tolerance && normalizedCode.length === normalizedTarget.length;
+        }
+
+        function levenshteinDistance(a, b) {
+            const matrix = [];
+            for (let i = 0; i <= b.length; i++) {
+                matrix[i] = [i];
+            }
+            for (let j = 0; j <= a.length; j++) {
+                matrix[0][j] = j;
+            }
+            for (let i = 1; i <= b.length; i++) {
+                for (let j = 1; j <= a.length; j++) {
+                    if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                        matrix[i][j] = matrix[i - 1][j - 1];
+                    } else {
+                        matrix[i][j] = Math.min(
+                            matrix[i - 1][j - 1] + 1,
+                            matrix[i][j - 1] + 1,
+                            matrix[i - 1][j] + 1
+                        );
+                    }
+                }
+            }
+            return matrix[b.length][a.length];
+        }
+
+        // DOM elements
+        const startState = document.getElementById('startState');
+        const scanningState = document.getElementById('scanningState');
+        const noCodeState = document.getElementById('noCodeState');
+        const modal = document.getElementById('modal');
+        const startBtn = document.getElementById('startBtn');
+        const doneBtn = document.getElementById('doneBtn');
+        const retryBtn = document.getElementById('retryBtn');
+        const dismissBtn = document.getElementById('dismissBtn');
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const noCodeCanvas = document.getElementById('noCodeCanvas');
+        const scanline = document.querySelector('.scanline');
+        const spinner = document.querySelector('.spinner');
+        const pulseRing = document.querySelector('.pulse-ring');
+
+        let stream = null;
+        let isProcessing = false;
+
+        // Start scanning
+        startBtn.addEventListener('click', async () => {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+                video.srcObject = stream;
+                
+                startState.classList.add('state-hidden');
+                scanningState.classList.remove('state-hidden');
+                scanline.style.display = 'block';
+            } catch (err) {
+                console.error('Camera access denied:', err);
+                alert('Camera access is required to scan codes.');
+            }
+        });
+
+        // Capture snapshot
+        doneBtn.addEventListener('click', () => {
+            if (isProcessing) return;
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            
+            video.style.display = 'none';
+            doneBtn.style.display = 'none';
+            spinner.style.display = 'block';
+            scanline.style.display = 'none';
+            
+            isProcessing = true;
+            processImage(canvas);
+        });
+
+        // Process image with OCR
+        async function processImage(imgCanvas) {
+            console.log('Processing image...');
+            
+            try {
+                const { data: { text } } = await Tesseract.recognize(
+                    imgCanvas, 
+                    'eng',
+                    {
+                        logger: m => console.log(m)
+                    }
+                );
+                
+                console.log('Raw OCR output:', text);
+                
+                const cleanedText = text.trim()
+                    .replace(/[^A-Z0-9]/g, '')
+                    .toUpperCase()
+                    .substring(0, 4);
+                
+                console.log('Cleaned OCR output:', cleanedText);
+                
+                const matchedCode = Object.keys(codes).find(code => 
+                    fuzzyMatch(cleanedText, code)
+                );
+                
+                if (matchedCode) {
+                    showSuccess(matchedCode);
+                } else {
+                    showNoCode(imgCanvas);
+                }
+            } catch (error) {
+                console.error('OCR Error:', error);
+                showNoCode(imgCanvas);
+            }
+        }
+
+        // Show success modal
+        function showSuccess(code) {
+            pulseRing.style.display = 'block';
+            setTimeout(() => {
+                const challenge = codes[code];
+               
